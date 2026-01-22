@@ -41,7 +41,14 @@ This app is optimized for deployment on **Vercel**.
 
 1. Push this code to your GitHub repository.
 2. Import the project into Vercel.
-3. No Environment Variables are required for standard sandbox testing.
+3. **Environment Variables** (Optional, for Merchant Generator)
+   To use the **Merchant Mode QR Generator**, you must provide your Midtrans Sandbox Server Key.
+   - **Local**: Create `.env.local` and add:
+     ```env
+     MIDTRANS_SERVER_KEY=SB-Mid-server-xxxxxxxxx
+     ```
+   - **Vercel**: Add `MIDTRANS_SERVER_KEY` in Project Settings > Environment Variables.
+
 4. Deploy!
 
 ## License
