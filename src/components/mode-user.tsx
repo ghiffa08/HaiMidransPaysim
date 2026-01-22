@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CheckCircle, Flashlight, Loader2, ScanLine, X, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,8 @@ function PaymentDrawer({
     const handlePay = async () => {
         setLoading(true);
         try {
+             // In a real app we would parse the qrUrl to get ID/Amount
+             // For sandbox simulation we just pass it through
              const response = await fetch("/api/sandbox/pay", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -89,14 +91,55 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   useEffect(() => {
     if (drawerOpen || success) return;
+
     const scannerId = "reader";
-    if (!document.getElementById(scannerId)) return;
-    const scanner = new Html5QrcodeScanner(scannerId, { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, false);
-    scanner.render((decodedText) => { setScanResult(decodedText); setDrawerOpen(true); scanner.clear(); }, () => {});
-    return () => { scanner.clear().catch(console.error); };
+    // Ensure element exists before initializing
+    const element = document.getElementById(scannerId);
+    if (!element) return;
+
+    const html5QrCode = new Html5Qrcode(scannerId);
+    
+    const startScanner = async () => {
+        try {
+            await html5QrCode.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    aspectRatio: 1.0
+                },
+                (decodedText) => {
+                    console.log("Scanned:", decodedText);
+                    setScanResult(decodedText);
+                    setDrawerOpen(true);
+                    
+                    // Stop scanning on success to save resources/battery
+                    html5QrCode.stop().catch(console.error);
+                },
+                (errorMessage) => {
+                   // Parse errors are common and can be ignored
+                }
+            );
+        } catch (err: any) {
+            console.error("Camera failed to start", err);
+            setCameraError(err?.message || "Camera permission denied or unavailable");
+        }
+    };
+
+    startScanner();
+
+    // Cleanup function
+    return () => {
+       if (html5QrCode.isScanning) {
+           html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+       } else {
+           html5QrCode.clear();
+       }
+    };
   }, [drawerOpen, success]);
 
   const handleSuccess = () => { setSuccess(true); toast.success("Payment Verified"); }
@@ -112,7 +155,6 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
                    <p className="text-slate-500">Your transaction has been processed.</p>
                    
                    <div className="mt-8 w-full bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4 relative">
-                       {/* Receipt jagged edge (visual css trick or simple border) */}
                        <div className="flex justify-between items-center pb-4 border-b border-slate-200 border-dashed">
                            <span className="text-slate-500 text-sm">Amount</span>
                            <span className="font-bold text-lg">Rp 15.000</span>
@@ -138,7 +180,19 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
   return (
     <div className="relative h-full bg-black">
       <PaymentDrawer open={drawerOpen} onOpenChange={(open) => { setDrawerOpen(open); if(!open) setScanResult(null); }} qrUrl={scanResult} onSuccess={handleSuccess} />
-      <div id="reader" className="w-full h-full object-cover [&>div]:!h-full [&>video]:!object-cover [&>div>div]:!hidden" />
+      
+      {/* Container for the scanner - Critical Fix: Removed `hidden` children hacks */}
+      <div id="reader" className="w-full h-full overflow-hidden [&>video]:object-cover [&>video]:w-full [&>video]:h-full" />
+
+      {cameraError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20 p-6 text-center">
+              <div className="space-y-4">
+                  <p className="text-red-400 font-semibold">Camera Error</p>
+                  <p className="text-white text-sm">{cameraError}</p>
+                  <Button variant="secondary" onClick={onBack}>Go Back</Button>
+              </div>
+          </div>
+      )}
 
       {/* Modern QRIS Overlay */}
       <div className="absolute inset-0 z-10 flex flex-col justify-between pointer-events-none p-6 pb-24">
@@ -157,13 +211,11 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
                <div className="w-72 h-72 rounded-3xl relative border border-white/20">
                     <div className="absolute inset-0 border-[3px] border-white/30 rounded-3xl" />
                     
-                    {/* QRIS Corners (Color: Standard QRIS Red/Grey or White for Overlay) - White is better for dark camera bg */}
                     <div className="absolute top-0 left-0 w-8 h-8 border-l-4 border-t-4 border-white -ml-0.5 -mt-0.5 rounded-tl-lg" />
                     <div className="absolute top-0 right-0 w-8 h-8 border-r-4 border-t-4 border-white -mr-0.5 -mt-0.5 rounded-tr-lg" />
                     <div className="absolute bottom-0 left-0 w-8 h-8 border-l-4 border-b-4 border-white -ml-0.5 -mb-0.5 rounded-bl-lg" />
                     <div className="absolute bottom-0 right-0 w-8 h-8 border-r-4 border-b-4 border-white -mr-0.5 -mb-0.5 rounded-br-lg" />
 
-                    {/* QRIS Logo Watermark */}
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 px-3 py-1 rounded text-[10px] font-bold tracking-widest text-[#ED1C24]">
                         QRIS
                     </div>
