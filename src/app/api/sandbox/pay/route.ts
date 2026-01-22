@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { actionUrl, formData } = body;
+    const { actionUrl, formData, cookies } = body;
 
     if (!actionUrl || !formData) {
-        // Fallback for older clients or direct calls (simulate legacy behavior if needed, or just error)
         return NextResponse.json(
             { message: "Invalid payment context. Please scan again." },
             { status: 400 }
@@ -20,16 +19,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Submit Request (Mimic Browser Form Submit)
+    // IMPORTANT: Forward cookies to maintain session/CSRF validity
     const response = await fetch(actionUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": new URL(actionUrl).origin,
-        "Referer": actionUrl, // Usually the referer is the form page (which is the actionUrl or the original URL, but actionUrl is safe)
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "Referer": actionUrl, 
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Cookie": cookies || "" 
       },
       body: params,
-      redirect: "manual" // We want to see if it redirects (success)
+      redirect: "manual" 
     });
 
     // Check success
