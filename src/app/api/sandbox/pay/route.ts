@@ -33,13 +33,32 @@ export async function POST(req: NextRequest) {
     });
 
     // Check success
-    // Usually a 302 redirect means success in these flows
-    if (response.status === 302 || response.status === 200) {
+    // Standard Midtrans Simulator behavior: Redirects (302) on success.
+    // If it returns 200, it usually means the form rendered again (likely with an error).
+    
+    if (response.status >= 300 && response.status < 400) {
          return NextResponse.json({ success: true, message: "Payment Successful" });
     }
 
-    // If we get here, it might be an error page
     const text = await response.text();
+    
+    // Fallback: Sometimes it might return 200 with a success message (unlikely for this specific simulator but good safety)
+    if (response.status === 200) {
+        const isSuccessPage = text.includes("Payment Successful") || text.includes("Transaksi Berhasil");
+        const hasError = text.includes("alert-danger") || text.includes("is invalid") || text.includes("tidak valid");
+        
+        if (isSuccessPage && !hasError) {
+             return NextResponse.json({ success: true, message: "Payment Successful" });
+        }
+        
+        // If 200 and not success page, it's a failure (form re-display)
+        console.error("Upstream returned 200 but seemingly with error:", text.slice(0, 300));
+        return NextResponse.json(
+            { message: "Payment Invalid or Expired (Upstream Rejected)" },
+            { status: 400 } // Bad Request
+        );
+    }
+    
     console.error("Upstream Payment Error:", response.status, text.slice(0, 500));
     
     return NextResponse.json(
