@@ -30,19 +30,20 @@ export async function POST(req: NextRequest) {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
                 },
-                cache: "no-store" // CRITICAL: Prevent Next.js/Vercel from caching the session page
+                cache: "no-store" 
             });
             if (!res.ok) throw new Error("Simulator Unreachable: " + res.status);
             const html = await res.text();
             
             // Try to get cookies robustly
-            // 'set-cookie' header might be split or combined.
-            let cookies = res.headers.get("set-cookie") || "";
-            // @ts-ignore - getSetCookie exists in newer node/next environments
-            if (!cookies && typeof res.headers.getSetCookie === 'function') {
+            let cookies = "";
+            // @ts-ignore
+            if (typeof res.headers.getSetCookie === 'function') {
                  // @ts-ignore
                  const cookieArray = res.headers.getSetCookie();
                  cookies = cookieArray.join("; ");
+            } else {
+                 cookies = res.headers.get("set-cookie") || "";
             }
 
             const csrfMatch = html.match(/<meta[^>]*name="csrf-token"[^>]*content="([^"]+)"/i);
@@ -58,22 +59,19 @@ export async function POST(req: NextRequest) {
     };
 
     // --- Strategy: Parallel Fetch ---
-    // 1. Get Session (for payment context)
-    // 2. Get QR Content (for display details)
-    
-    // Check if it's a URL
     const isUrl = qrUrl.startsWith("http://") || qrUrl.startsWith("https://");
-    
-    // Start Session Fetch immediately
     const sessionPromise = fetchSession();
 
     let amount = "Rp -";
     let merchantName = "Unknown Merchant";
-    let hiddenInputs: Record<string, string> = { qrCodeUrl: qrUrl };
+    
+    // NOTE: We do NOT use scraped inputs for the payment payload anymore.
+    // The Simulator only reliably accepts { qrCodeUrl, _token }.
+    // Scraped inputs from the merchants-app often conflict or belong to a different flow.
 
     if (isUrl) {
-         // Fetch QR Content (Legacy Reliable Method)
          try {
+             // Fetch QR Content ONLY for parsing display details (Amount, Merchant)
              const qrRes = await fetch(qrUrl, {
                  headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) width=device-width" }
              });
@@ -89,19 +87,11 @@ export async function POST(req: NextRequest) {
                                       html.match(/<h1[^>]*>(.*?)<\/h1>/i) ||
                                       html.match(/<strong[^>]*>(.*?)<\/strong>/i);
                  if (merchantMatch) merchantName = merchantMatch[1].trim().replace(/<[^>]*>/g, "");
-
-                 // Inputs
-                 const inputRegex = /<input[^>]*type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]+)"/gi;
-                 let match;
-                 while ((match = inputRegex.exec(html)) !== null) {
-                    hiddenInputs[match[1]] = match[2];
-                 }
              }
          } catch (e) {
              console.error("QR Content Fetch Error:", e);
          }
     } else {
-         // RAW EMVCo
          try {
             const emvData = parseEmvco(qrUrl);
             merchantName = emvData["59"] || "Unknown Merchant";
@@ -113,14 +103,13 @@ export async function POST(req: NextRequest) {
     // Await Session
     const session = await sessionPromise;
     
-    // Merge Context
-    if (session.success) {
-        if (session.token) hiddenInputs["_token"] = session.token;
-        // If we didn't find hidden inputs from QR URL (or it was raw), we rely on the session inputs? 
-        // Actually, for Raw/Simulator flow, we usually just need qrCodeUrl + _token.
-        // But for "Snap" links, there might be other hidden fields.
-        // We preserve 'hiddenInputs' gathered from QR URL as they are specific to the transaction!
-        // We ONLY start session to get cookies and CSRF.
+    // Construct Payment Context strictly for Simulator
+    const paymentFormData: Record<string, string> = {
+        qrCodeUrl: qrUrl
+    };
+    
+    if (session.success && session.token) {
+        paymentFormData["_token"] = session.token;
     }
 
     return NextResponse.json({
@@ -130,7 +119,7 @@ export async function POST(req: NextRequest) {
             merchantName,
             context: {
                 actionUrl: session.actionUrl, 
-                formData: hiddenInputs,
+                formData: paymentFormData,
                 cookies: session.cookies,
                 originalUrl: qrUrl
             }
