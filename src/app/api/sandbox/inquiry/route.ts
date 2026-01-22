@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
+function parseEmvco(data: string) {
+    let i = 0;
+    const result: Record<string, string> = {};
+    while (i < data.length) {
+        const id = data.substr(i, 2);
+        const len = parseInt(data.substr(i + 2, 2));
+        const val = data.substr(i + 4, len);
+        result[id] = val;
+        i += 4 + len;
+    }
+    return result;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { qrUrl } = await req.json();

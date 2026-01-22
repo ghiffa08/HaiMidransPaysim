@@ -108,6 +108,11 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
     
     const startScanner = async () => {
         try {
+            // Check for Secure Context (HTTPS or Localhost)
+            if (typeof window !== "undefined" && window.isSecureContext === false) {
+                 throw new Error("Camera requires HTTPS or Localhost. Cannot use Camera on HTTP IP address.");
+            }
+
             await html5QrCode.start(
                 { facingMode: "environment" },
                 {
@@ -153,7 +158,12 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
             );
         } catch (err: any) {
             console.error("Camera failed to start", err);
-            setCameraError(err?.message || "Camera permission denied or unavailable");
+            // Customize error message for common issues
+            let msg = err?.message || "Camera permission denied or unavailable";
+            if (msg.includes("HTTPS")) {
+                msg = "Browser blocks Camera on HTTP. Use HTTPS or Localhost.";
+            }
+            setCameraError(msg);
         }
     };
 
