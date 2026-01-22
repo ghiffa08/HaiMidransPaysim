@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Midtrans Paysim
+
+A High-Fidelity Midtrans QRIS Simulator PWA. Designed to streamline testing of Midtrans payments by bypassing manual copy-pasting of payment URLs.
+
+![Midtrans Paysim Preview](/preview.png)
+
+## Features
+
+- **Mobile-First PWA**: Installable on iOS and Android. Mobile-first layout.
+- **Merchant Mode**: Generate scannable QRIS codes from raw Midtrans Image URLs.
+- **User Mode**: Full-screen QR Scanner with "QRIS" branding and flashlight support.
+- **Smart Proxy**: Automatically bypasses CORS to submit payments to Midtrans Sandbox Simulator.
+- **Onboarding**: Intro flow for new users.
+
+## Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Styling**: Tailwind CSS, Shadcn UI, Lucid React.
+- **Logic**: HTML5-QRCode, qrcode.react.
 
 ## Getting Started
 
-First, run the development server:
+1. **Clone & Install**
+   ```bash
+   git clone https://github.com/yourusername/midtrans-paysim.git
+   cd midtrans-paysim
+   npm install
+   ```
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+2. **Run Locally**
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:3000`.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deployment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+This app is optimized for deployment on **Vercel**.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyourusername%2Fmidtrans-paysim)
 
-## Learn More
+1. Push this code to your GitHub repository.
+2. Import the project into Vercel.
+3. No Environment Variables are required for standard sandbox testing.
+4. Deploy!
 
-To learn more about Next.js, take a look at the following resources:
+## License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
