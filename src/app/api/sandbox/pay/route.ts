@@ -6,44 +6,37 @@ export async function POST(req: NextRequest) {
     const scannedUrl = body.scannedUrl || body.qrCodeUrl || body.qrUrl;
 
     if (!scannedUrl) {
-        return NextResponse.json(
-            { message: "QR Data is required." },
-            { status: 400 }
-        );
-    }
-
-    // [VALIDASI PENTING] Cek apakah yang di-scan adalah URL
-    if (!scannedUrl.startsWith("http")) {
-        return NextResponse.json(
-            { 
-              message: "Format Salah: Harap scan QR yang berisi URL Image Midtrans, bukan Raw String QRIS.",
-              hint: "Saat generate QR, pastikan value-nya adalah 'actions.url' bukan 'qr_string'." 
-            },
-            { status: 400 }
-        );
+        return NextResponse.json({ message: "QR URL is required." }, { status: 400 });
     }
     
-    // 1. Fetch Session & CSRF Token dengan Header yang lebih lengkap
-    const simulatorUrl = "https://simulator.sandbox.midtrans.com/qris/payment";
-    const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    // URL Endpoint Simulator
+    const simulatorIndexUrl = "https://simulator.sandbox.midtrans.com/qris/index"; // <-- SUMBER TOKEN
+    const simulatorPayUrl = "https://simulator.sandbox.midtrans.com/qris/payment";   // <-- TUJUAN POST
     
     let cookies = "";
     let csrfToken = "";
     
+    // 1. Ambil Halaman Index untuk dapat Cookie & Token
     try {
-        const sessionRes = await fetch("https://simulator.sandbox.midtrans.com/qris/index", {
-            headers: { "User-Agent": userAgent },
+        const sessionRes = await fetch(simulatorIndexUrl, {
+            method: "GET",
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+            },
             cache: "no-store"
         });
         
-        // Handling Cookies yang lebih robust
-        const setCookieHeader = sessionRes.headers.get("set-cookie");
-        if (setCookieHeader) {
-             // Ambil session id (biasanya XSRF-TOKEN dan laravel_session)
-             cookies = setCookieHeader.split(',').map(c => c.split(';')[0]).join('; ');
+        // Extract Cookies
+        // @ts-ignore
+        if (typeof sessionRes.headers.getSetCookie === 'function') {
+            // @ts-ignore
+            cookies = sessionRes.headers.getSetCookie().join("; ");
+        } else {
+            cookies = sessionRes.headers.get("set-cookie") || "";
         }
 
-        // Extract CSRF Token dengan regex yang lebih luas
+        // Extract CSRF Token dari HTML Index
         const html = await sessionRes.text();
         const csrfMatch = html.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
                           html.match(/name="_token"\s+value="([^"]+)"/i);
@@ -51,66 +44,69 @@ export async function POST(req: NextRequest) {
         csrfToken = csrfMatch ? csrfMatch[1] : "";
         
         if (!csrfToken) {
-            console.error("Gagal mengambil CSRF Token");
-            return NextResponse.json({ message: "Gagal terhubung ke Simulator (CSRF)" }, { status: 502 });
+            console.error("Gagal mengambil CSRF Token dari halaman Index");
+            // Lanjut mencoba siapa tahu server sedang loose protection
         }
 
     } catch (sessionErr) {
-        return NextResponse.json({ message: "Network Error ke Midtrans Simulator" }, { status: 502 });
+        console.error("Gagal koneksi ke Simulator Index:", sessionErr);
+        return NextResponse.json({ message: "Gagal terhubung ke Simulator Midtrans" }, { status: 502 });
     }
 
-    // 2. Kirim Request Pembayaran
+    // 2. Siapkan Payload untuk POST Payment
     const params = new URLSearchParams();
-    params.append("qrCodeUrl", scannedUrl);
-    params.append("_token", csrfToken); // Laravel biasanya butuh ini di body juga
+    params.append("qrCodeUrl", scannedUrl); // URL Image QR
+    if (csrfToken) {
+        params.append("_token", csrfToken);
+    }
 
-    const response = await fetch(simulatorUrl, {
+    // 3. Eksekusi Pembayaran
+    const response = await fetch(simulatorPayUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://simulator.sandbox.midtrans.com",
-        "Referer": "https://simulator.sandbox.midtrans.com/qris/index",
-        "User-Agent": userAgent,
-        "Cookie": cookies,
-        "X-CSRF-TOKEN": csrfToken // Kirim juga di header untuk keamanan
+        "Referer": simulatorIndexUrl, // Referer harus dari halaman index
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Cookie": cookies
       },
       body: params,
       redirect: "manual"
     });
 
-    // 3. Analisa Hasil
-    const text = await response.text();
-
-    // Jika Redirect (302) -> Berhasil
+    // 4. Validasi Hasil
+    // Midtrans biasanya redirect (302) jika sukses
     if (response.status >= 300 && response.status < 400) {
          return NextResponse.json({ success: true, message: "Pembayaran Berhasil (Redirect)" });
     }
 
-    // Jika 200 OK, cek konten HTML apakah ada pesan sukses
-    if (response.status === 200) {
-        // Cek indikator sukses spesifik di HTML simulator
-        const isSuccess = text.includes("alert-success") || text.includes("Payment Successful") || text.includes("Transaksi Berhasil");
-        const isError = text.includes("alert-danger") || text.includes("is invalid");
+    const text = await response.text();
 
+    if (response.status === 200) {
+        const isSuccess = text.includes("Payment Successful") || text.includes("Transaksi Berhasil");
+        const isError = text.includes("alert-danger") || text.includes("is invalid");
+        
         if (isSuccess && !isError) {
              return NextResponse.json({ success: true, message: "Pembayaran Berhasil" });
         }
         
-        // Debugging: Log error text dari midtrans jika gagal
-        // Use a safe substring length
-        const errorStart = text.indexOf("alert-danger");
-        const errorSnippet = errorStart !== -1 ? text.substring(errorStart, errorStart + 200) : text.slice(0, 300);
-        console.error("Simulator Reject:", errorSnippet);
-        
+        console.error("Simulator menolak pembayaran:", text.substring(0, 300)); // Debug log
         return NextResponse.json(
-            { message: "Simulator menolak URL tersebut. Pastikan URL QR Image valid dan bisa diakses publik." },
+            { message: "Pembayaran Ditolak oleh Simulator (Invalid URL atau Expired)" },
             { status: 400 }
         );
     }
-
-    return NextResponse.json({ message: "Error dari Simulator" }, { status: response.status });
+    
+    return NextResponse.json(
+        { message: `Simulator Error: ${response.status}` },
+        { status: response.status }
+    );
 
   } catch (error: any) {
-    return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
+    console.error("Internal Proxy Error:", error);
+    return NextResponse.json(
+      { message: "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }
