@@ -2,44 +2,50 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { qrCodeUrl } = await req.json();
+    const body = await req.json();
+    const { actionUrl, formData } = body;
 
-    if (!qrCodeUrl) {
-      return NextResponse.json(
-        { message: "QR Code URL is required" },
-        { status: 400 }
-      );
-    }
-    
-    // We are proxying to Midtrans Simulator
-    // The simulator expects a POST to /qris/payment with body { qrCodeUrl: string }
-    // It requires Origin and Referer to be set to the simulator domain.
-
-    const targetUrl = "https://simulator.sandbox.midtrans.com/qris/payment";
-    
-    const response = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Origin": "https://simulator.sandbox.midtrans.com",
-        "Referer": "https://simulator.sandbox.midtrans.com/qris/payment",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      },
-      body: JSON.stringify({ qrCodeUrl }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    
-    if (!response.ok) {
-        // Log error for debugging but return clean message
-        console.error("Midtrans Proxy Error:", response.status, data);
+    if (!actionUrl || !formData) {
+        // Fallback for older clients or direct calls (simulate legacy behavior if needed, or just error)
         return NextResponse.json(
-            { message: data.message || "Upstream Payment Failed" },
-            { status: response.status }
+            { message: "Invalid payment context. Please scan again." },
+            { status: 400 }
         );
     }
+    
+    // Construct Form Data
+    const params = new URLSearchParams();
+    for (const key in formData) {
+        params.append(key, formData[key]);
+    }
 
-    return NextResponse.json(data);
+    // Submit Request (Mimic Browser Form Submit)
+    const response = await fetch(actionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": new URL(actionUrl).origin,
+        "Referer": actionUrl, // Usually the referer is the form page (which is the actionUrl or the original URL, but actionUrl is safe)
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      body: params,
+      redirect: "manual" // We want to see if it redirects (success)
+    });
+
+    // Check success
+    // Usually a 302 redirect means success in these flows
+    if (response.status === 302 || response.status === 200) {
+         return NextResponse.json({ success: true, message: "Payment Successful" });
+    }
+
+    // If we get here, it might be an error page
+    const text = await response.text();
+    console.error("Upstream Payment Error:", response.status, text.slice(0, 500));
+    
+    return NextResponse.json(
+        { message: "Upstream declined the payment." },
+        { status: response.status }
+    );
 
   } catch (error: any) {
     console.error("Internal Proxy Error:", error);

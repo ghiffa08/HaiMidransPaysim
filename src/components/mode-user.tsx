@@ -11,12 +11,14 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, D
 function PaymentDrawer({ 
     open, 
     onOpenChange, 
-    qrUrl, 
+    details,
+    paymentContext,
     onSuccess 
 }: { 
     open: boolean; 
     onOpenChange: (open: boolean) => void; 
-    qrUrl: string | null;
+    details: { amount: string, merchant: string } | null;
+    paymentContext: any;
     onSuccess: () => void;
 }) {
     const [loading, setLoading] = useState(false);
@@ -24,12 +26,10 @@ function PaymentDrawer({
     const handlePay = async () => {
         setLoading(true);
         try {
-             // In a real app we would parse the qrUrl to get ID/Amount
-             // For sandbox simulation we just pass it through
              const response = await fetch("/api/sandbox/pay", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ qrCodeUrl: qrUrl }),
+                body: JSON.stringify(paymentContext),
             });
 
             const data = await response.json();
@@ -62,17 +62,17 @@ function PaymentDrawer({
                 <div className="p-6 space-y-6">
                      <div className="flex flex-col items-center justify-center p-6 bg-[#118EEA]/5 rounded-2xl border border-[#118EEA]/10">
                          <span className="text-slate-500 text-sm font-medium">Total Amount</span>
-                         <span className="text-3xl font-extrabold text-[#118EEA] mt-1">Rp 15.000</span>
+                         <span className="text-3xl font-extrabold text-[#118EEA] mt-1">{details?.amount || "Rp 0"}</span>
                      </div>
 
                      <div className="space-y-4">
                          <div className="flex justify-between items-center text-sm">
                              <span className="text-slate-500">Merchant</span>
-                             <span className="font-bold text-slate-900">Midtrans Merchant</span>
+                             <span className="font-bold text-slate-900 line-clamp-1">{details?.merchant || "Unknown"}</span>
                          </div>
                          <div className="flex justify-between items-center text-sm">
                              <span className="text-slate-500">Ref ID</span>
-                             <span className="font-mono text-xs text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded">ORD-1234-MOCK</span>
+                             <span className="font-mono text-xs text-slate-400 font-medium bg-slate-100 px-2 py-1 rounded">ORD-{Math.floor(Math.random() * 10000)}</span>
                          </div>
                      </div>
                 </div>
@@ -88,16 +88,19 @@ function PaymentDrawer({
 }
 
 export function ModeUser({ onBack }: { onBack: () => void }) {
-  const [scanResult, setScanResult] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [success, setSuccess] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  
+  // New State for Inquiry Data
+  const [paymentDetails, setPaymentDetails] = useState<{amount: string, merchant: string} | null>(null);
+  const [paymentContext, setPaymentContext] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    if (drawerOpen || success) return;
+    if (drawerOpen || success || isProcessing) return;
 
     const scannerId = "reader";
-    // Ensure element exists before initializing
     const element = document.getElementById(scannerId);
     if (!element) return;
 
@@ -112,17 +115,41 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
                     qrbox: { width: 250, height: 250 },
                     aspectRatio: 1.0
                 },
-                (decodedText) => {
+                async (decodedText) => {
                     console.log("Scanned:", decodedText);
-                    setScanResult(decodedText);
-                    setDrawerOpen(true);
                     
-                    // Stop scanning on success to save resources/battery
-                    html5QrCode.stop().catch(console.error);
+                    // Pause scanner
+                    await html5QrCode.stop();
+                    
+                    // Start Inquiry
+                    setIsProcessing(true);
+                    toast.loading("Verifying QR...", { id: "inquiry" });
+
+                    try {
+                        const response = await fetch("/api/sandbox/inquiry", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ qrUrl: decodedText }),
+                        });
+                        const res = await response.json();
+
+                        if (!response.ok) throw new Error(res.message || "Invalid QR");
+
+                        // Success Inquiry
+                        toast.dismiss("inquiry");
+                        setPaymentDetails({ amount: res.data.amount, merchant: res.data.merchantName });
+                        setPaymentContext(res.data.context);
+                        setDrawerOpen(true);
+                    } catch (err: any) {
+                         toast.error(err.message || "Failed to read QR", { id: "inquiry" });
+                         // Restart scanner after error? Or just show error and let user go back.
+                         // For now, let's keep it stopped so they can exit or retry manually if we added a retry button.
+                         setCameraError("Failed to verify QR Code. Please try again.");
+                    } finally {
+                        setIsProcessing(false);
+                    }
                 },
-                (errorMessage) => {
-                   // Parse errors are common and can be ignored
-                }
+                (errorMessage) => {}
             );
         } catch (err: any) {
             console.error("Camera failed to start", err);
@@ -132,7 +159,6 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
 
     startScanner();
 
-    // Cleanup function
     return () => {
        if (html5QrCode.isScanning) {
            html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
@@ -140,7 +166,7 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
            html5QrCode.clear();
        }
     };
-  }, [drawerOpen, success]);
+  }, [drawerOpen, success, isProcessing]);
 
   const handleSuccess = () => { setSuccess(true); toast.success("Payment Verified"); }
 
@@ -157,11 +183,11 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
                    <div className="mt-8 w-full bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4 relative">
                        <div className="flex justify-between items-center pb-4 border-b border-slate-200 border-dashed">
                            <span className="text-slate-500 text-sm">Amount</span>
-                           <span className="font-bold text-lg">Rp 15.000</span>
+                           <span className="font-bold text-lg">{paymentDetails?.amount}</span>
                        </div>
                        <div className="flex justify-between items-center">
                            <span className="text-slate-500 text-sm">Merchant</span>
-                           <span className="font-medium text-sm">Midtrans Sandbox</span>
+                           <span className="font-medium text-sm">{paymentDetails?.merchant}</span>
                        </div>
                        <div className="flex justify-between items-center">
                            <span className="text-slate-500 text-sm">Date</span>
@@ -179,17 +205,34 @@ export function ModeUser({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="relative h-full bg-black">
-      <PaymentDrawer open={drawerOpen} onOpenChange={(open) => { setDrawerOpen(open); if(!open) setScanResult(null); }} qrUrl={scanResult} onSuccess={handleSuccess} />
+      <PaymentDrawer 
+        open={drawerOpen} 
+        onOpenChange={(open) => { 
+            setDrawerOpen(open); 
+            // If closed without success, we should probably reset/restart but component unmounting handles simple reset
+        }} 
+        details={paymentDetails}
+        paymentContext={paymentContext}
+        onSuccess={handleSuccess} 
+      />
       
-      {/* Container for the scanner - Critical Fix: Removed `hidden` children hacks */}
       <div id="reader" className="w-full h-full overflow-hidden [&>video]:object-cover [&>video]:w-full [&>video]:h-full" />
 
-      {cameraError && (
+      {(cameraError || isProcessing) && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20 p-6 text-center">
               <div className="space-y-4">
-                  <p className="text-red-400 font-semibold">Camera Error</p>
-                  <p className="text-white text-sm">{cameraError}</p>
-                  <Button variant="secondary" onClick={onBack}>Go Back</Button>
+                  {isProcessing ? (
+                      <div className="flex flex-col items-center">
+                          <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
+                          <p className="text-white font-semibold">Verifying QR Code...</p>
+                      </div>
+                  ) : (
+                      <>
+                        <p className="text-red-400 font-semibold">Scanner Error</p>
+                        <p className="text-white text-sm">{cameraError}</p>
+                        <Button variant="secondary" onClick={onBack}>Go Back</Button>
+                      </>
+                  )}
               </div>
           </div>
       )}
