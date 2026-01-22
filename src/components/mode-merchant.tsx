@@ -13,10 +13,41 @@ export function ModeMerchant({ onBack }: { onBack: () => void }) {
   const [qrUrl, setQrUrl] = useState("");
   const [generated, setGenerated] = useState(false);
 
-  const handleGenerate = (e: React.FormEvent) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qrUrl) return;
-    setGenerated(true);
+    
+    // Mode 1: Manual URL Display
+    if (qrUrl) {
+        setGenerated(true);
+        return;
+    }
+
+    // Mode 2: Generate from Amount
+    if (!nominal) return;
+    
+    setLoading(true);
+    try {
+        const res = await fetch("/api/sandbox/charge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount: nominal.replace(/\D/g, "") })
+        });
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+            setQrUrl(data.qrUrl);
+            setGenerated(true);
+        } else {
+            alert("Error: " + (data.message || "Failed to generate QR"));
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Failed to connect to server");
+    } finally {
+        setLoading(false);
+    }
   };
 
   return (
@@ -52,25 +83,24 @@ export function ModeMerchant({ onBack }: { onBack: () => void }) {
                 </div>
 
                 <div className="space-y-3">
-                    <Label htmlFor="qrUrl" className="text-slate-600 font-semibold">QR Image URL</Label>
+                    <Label htmlFor="qrUrl" className="text-slate-600 font-semibold">Or Paste Existing QR URL</Label>
                     <div className="relative">
                         <textarea
                             id="qrUrl"
-                            placeholder="Paste url..."
+                            placeholder="Paste midtrans qr image url..."
                             value={qrUrl}
                             onChange={(e) => setQrUrl(e.target.value)}
                             className="w-full h-24 p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#118EEA] resize-none leading-relaxed"
-                            required
                         />
                     </div>
                     <p className="text-xs text-slate-400">
-                        Input the raw Midtrans QR Image URL here.
+                        Leave empty if you want to generate a new QR code from amount.
                     </p>
                 </div>
             </div>
 
-          <Button type="submit" className="w-full h-14 text-lg font-bold bg-[#118EEA] hover:bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200" disabled={!qrUrl}>
-            Create QRIS Code
+          <Button type="submit" className="w-full h-14 text-lg font-bold bg-[#118EEA] hover:bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200" disabled={(!nominal && !qrUrl) || loading}>
+            {loading ? "Generating..." : (qrUrl ? "Display QR Code" : "Generate QRIS Code")}
           </Button>
         </form>
       ) : (
