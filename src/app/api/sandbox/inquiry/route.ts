@@ -29,11 +29,22 @@ export async function POST(req: NextRequest) {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-                }
+                },
+                cache: "no-store" // CRITICAL: Prevent Next.js/Vercel from caching the session page
             });
             if (!res.ok) throw new Error("Simulator Unreachable: " + res.status);
             const html = await res.text();
-            const cookies = res.headers.get("set-cookie") || "";
+            
+            // Try to get cookies robustly
+            // 'set-cookie' header might be split or combined.
+            let cookies = res.headers.get("set-cookie") || "";
+            // @ts-ignore - getSetCookie exists in newer node/next environments
+            if (!cookies && typeof res.headers.getSetCookie === 'function') {
+                 // @ts-ignore
+                 const cookieArray = res.headers.getSetCookie();
+                 cookies = cookieArray.join("; ");
+            }
+
             const csrfMatch = html.match(/<meta[^>]*name="csrf-token"[^>]*content="([^"]+)"/i);
             const token = csrfMatch ? csrfMatch[1] : "";
             const actionMatch = html.match(/<form[^>]*action="([^"]+)"/i);
