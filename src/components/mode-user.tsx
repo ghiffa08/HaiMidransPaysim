@@ -23,23 +23,30 @@ function PaymentDrawer({
 }) {
     const [loading, setLoading] = useState(false);
 
-    const handlePay = async () => {
+    // Handle Payment
+    const handlePayment = async () => {
+        if (!details) return; // Using 'details' as a proxy for payment data presence
+        
         setLoading(true);
         try {
-             const response = await fetch("/api/sandbox/pay", {
+            const qrUrl = paymentContext?.qrUrl || paymentContext?.originalUrl; // Support both naming
+            
+            const response = await fetch("/api/sandbox/pay", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(paymentContext),
+                body: JSON.stringify({ scannedUrl: qrUrl })
             });
-
+            
             const data = await response.json();
-
-            if (!response.ok) throw new Error(data.message || "Payment Failed");
-
-            onSuccess();
-            onOpenChange(false);
+            
+            if (data.success) {
+                onSuccess();
+                onOpenChange(false);
+            } else {
+                throw new Error(data.message || "Payment Failed");
+            }
         } catch (error: any) {
-             toast.error(error.message || "Payment Failed");
+            toast.error(error.message || "Payment Error");
         } finally {
             setLoading(false);
         }
@@ -77,7 +84,7 @@ function PaymentDrawer({
                      </div>
                 </div>
                 <DrawerFooter className="px-6 pb-8">
-                    <Button onClick={handlePay} disabled={loading} size="lg" className="h-14 bg-[#118EEA] hover:bg-blue-600 text-white font-bold rounded-2xl text-lg relative shadow-lg shadow-blue-200">
+                    <Button onClick={handlePayment} disabled={loading} size="lg" className="h-14 bg-[#118EEA] hover:bg-blue-600 text-white font-bold rounded-2xl text-lg relative shadow-lg shadow-blue-200">
                         {loading && <Loader2 className="mr-2 h-5 w-5 animate-spin absolute left-4" />}
                         PAY NOW
                     </Button>
